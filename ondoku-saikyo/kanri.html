@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>音読クエスト 〜黙読の呪いを解け〜</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'DotGothic16', sans-serif;
+            background-color: #1a1a1a;
+            color: #fff;
+            overflow: hidden;
+            margin: 0;
+        }
+        .pixel-border {
+            border: 4px solid #fff;
+            box-shadow: 0 0 0 4px #000, 0 0 0 8px #fff;
+        }
+        .text-window {
+            background-color: rgba(0, 0, 50, 0.9);
+            min-height: 150px;
+        }
+        .cursor-blink {
+            display: inline-block;
+            width: 12px;
+            height: 24px;
+            background-color: #fff;
+            animation: blink 0.8s infinite;
+            vertical-align: middle;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+        .choice-btn {
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        .choice-btn:hover {
+            background-color: #fff;
+            color: #000;
+        }
+        .choice-btn::before {
+            content: '▶ ';
+            opacity: 0;
+        }
+        .choice-btn:hover::before {
+            opacity: 1;
+        }
+        .shake {
+            animation: shake 0.5s;
+        }
+        @keyframes shake {
+            0% { transform: translate(1px, 1px) rotate(0deg); }
+            10% { transform: translate(-1px, -2px) rotate(-1deg); }
+            20% { transform: translate(-3px, 0px) rotate(1deg); }
+            30% { transform: translate(3px, 2px) rotate(0deg); }
+            40% { transform: translate(1px, -1px) rotate(1deg); }
+            50% { transform: translate(-1px, 2px) rotate(-1deg); }
+            100% { transform: translate(1px, 1px) rotate(0deg); }
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-center h-screen p-4">
+
+    <!-- Game Container -->
+    <div id="game-screen" class="w-full max-w-2xl aspect-[4/3] flex flex-col relative overflow-hidden bg-black pixel-border">
+        
+        <!-- Status Bar -->
+        <div class="flex justify-between p-4 bg-gray-900 border-b-4 border-white text-xl">
+            <div>LV: <span id="lv-val">1</span></div>
+            <div>集中力: <span id="hp-val">100</span></div>
+            <div>知識: <span id="exp-val">0</span>/30</div>
+        </div>
+
+        <!-- Stage/Character Area -->
+        <div id="stage" class="flex-grow flex flex-col items-center justify-center p-8 text-center relative">
+            <div id="character-sprite" class="mb-4 text-6xl">🧙‍♂️</div>
+            <div id="scenario-title" class="text-yellow-400 text-lg mb-2">序章：黙読の森</div>
+            <div id="visual-cue" class="text-4xl mb-4">📖</div>
+        </div>
+
+        <!-- Message Window -->
+        <div class="text-window p-6 border-t-4 border-white">
+            <div id="message-text" class="text-xl leading-relaxed mb-4"></div>
+            
+            <!-- Choices -->
+            <div id="choices-container" class="grid grid-cols-1 gap-2 hidden">
+                <button onclick="makeChoice(0)" class="choice-btn text-left p-2 border border-transparent">黙読で進む（静かに読む）</button>
+                <button onclick="makeChoice(1)" class="choice-btn text-left p-2 border border-transparent">音読を試す（声に出す）</button>
+            </div>
+            
+            <div id="next-indicator" class="text-right hidden mt-2">
+                <span class="cursor-blink"></span>
+            </div>
+        </div>
+
+        <!-- Game Over / Win Overlay -->
+        <div id="overlay" class="absolute inset-0 bg-black flex flex-col items-center justify-center z-50 hidden p-8 text-center">
+            <h2 id="overlay-title" class="text-4xl mb-8 text-red-500">GAME OVER</h2>
+            <p id="overlay-text" class="text-xl mb-8"></p>
+            <button onclick="location.reload()" class="bg-white text-black px-8 py-4 text-2xl hover:bg-yellow-400 transition-colors">もう一度挑戦する</button>
+        </div>
+    </div>
+
+    <script>
+        const scenarioData = [
+            {
+                title: "Lv.1：英単語の暗記",
+                char: "🧙‍♂️",
+                cue: "🔤",
+                message: "見知らぬ呪文（英単語）が壁に書かれている…。これを覚えないと扉が開かないようだ。どうやって覚える？",
+                choices: ["目で追って心の中で唱える", "耳に届くようにはっきりと発音する"],
+                correct: 1,
+                explanation: "音読は視覚だけでなく聴覚も刺激するため、脳の活性化部位が広がり記憶に残りやすくなるぞ！"
+            },
+            {
+                title: "Lv.2：睡魔の誘惑",
+                char: "💤",
+                cue: "🛌",
+                message: "図書館の端で勉強中、猛烈な眠気が襲ってきた。集中力が切れそうだ…。",
+                choices: ["目を閉じて内容をイメージする", "小声でもいいから音読を始める"],
+                correct: 1,
+                explanation: "音読は『運動』だ。口を動かすことで脳の血流が良くなり、眠気を打破し集中を維持できる！"
+            },
+            {
+                title: "Lv.3：国語の長文読解",
+                char: "🖋️",
+                cue: "📜",
+                message: "難解な現代文。同じ行を何度も読み返してしまい、内容が頭に入ってこない！",
+                choices: ["スピードを上げて黙読する", "指でなぞりながら音読する"],
+                correct: 1,
+                explanation: "音読は強制的に『一字一句』を追わせるため、読み飛ばしや注意散漫を防ぐ効果がある。"
+            },
+            {
+                title: "Lv.4：周囲の雑音",
+                char: "📢",
+                cue: "🏢",
+                message: "周りで人が喋っている。自分の思考が雑音にかき消される…。",
+                choices: ["耳を塞いで黙読に没頭する", "自分の声で雑音を上書きする"],
+                correct: 1,
+                explanation: "自分の声を聴くことで、外部の雑音に対するフィルター（カクテルパーティー効果）が働くのだ。"
+            },
+            {
+                title: "Lv.5：数学の文章題",
+                char: "📐",
+                cue: "🔢",
+                message: "問題文が複雑すぎて、何を聞かれているのか理解できない。",
+                choices: ["図を描きながら黙読する", "条件を一つずつ読み上げる"],
+                correct: 1,
+                explanation: "音読は情報の処理スピードをあえて落とし、論理的な理解を深める助けになる。"
+            },
+            {
+                title: "Lv.6：集中力の限界",
+                char: "😫",
+                cue: "⏳",
+                message: "勉強開始から1時間。脳がオーバーヒート気味だ。どう切り替える？",
+                choices: ["休憩してスマホを見る", "音読でリズムを作って再開する"],
+                correct: 1,
+                explanation: "リズム運動としての音読はセロトニンを分泌させ、精神的な安定と集中を促すぞ。"
+            },
+            {
+                title: "Lv.7：テスト前夜の追い込み",
+                char: "🔥",
+                cue: "⏰",
+                message: "明日は歴史のテスト。教科書の内容が膨大すぎる！",
+                choices: ["とにかく速読して何度も回す", "重要箇所を演説するように話す"],
+                correct: 1,
+                explanation: "誰かに教えるつもりで音読（自己解説）すると、理解の穴が見つかり記憶も強固になる。"
+            },
+            // ... ここから30問分、エッセンスを凝縮してループ・生成 ...
+        ];
+
+        // 30問までデータを自動生成（シチュエーションを変える）
+        const situations = [
+            "物理の公式", "古文の助動詞", "漢文の句法", "生物の名称", "地理の特産物", 
+            "小論文の構成", "リスニング対策", "公式の証明", "英熟語の暗記", "哲学の理解"
+        ];
+        
+        for (let i = 8; i <= 30; i++) {
+            const sit = situations[i % situations.length];
+            scenarioData.push({
+                title: `Lv.${i}：${sit}の試練`,
+                char: "👾",
+                cue: "⚔️",
+                message: `${sit}の壁が立ちはだかった！ 脳の疲労度はピークだが、君はどう攻略する？`,
+                choices: ["静かに集中力を絞り出す", "声の魔法を唱えて脳を叩き起こす"],
+                correct: 1,
+                explanation: `音読こそ最強の勉強法。第${i}の試練も、声を出すことで脳のネットワークが繋がった！`
+            });
+        }
+
+        let currentIdx = 0;
+        let hp = 100;
+        let exp = 0;
+        let isTyping = false;
+
+        const messageEl = document.getElementById('message-text');
+        const choicesEl = document.getElementById('choices-container');
+        const hpVal = document.getElementById('hp-val');
+        const expVal = document.getElementById('exp-val');
+        const lvVal = document.getElementById('lv-val');
+        const charSprite = document.getElementById('character-sprite');
+        const scenarioTitle = document.getElementById('scenario-title');
+        const visualCue = document.getElementById('visual-cue');
+        const overlay = document.getElementById('overlay');
+
+        function typeMessage(text, callback) {
+            isTyping = true;
+            messageEl.innerHTML = "";
+            choicesEl.classList.add('hidden');
+            let i = 0;
+            const timer = setInterval(() => {
+                messageEl.innerHTML += text.charAt(i);
+                i++;
+                if (i >= text.length) {
+                    clearInterval(timer);
+                    isTyping = false;
+                    if (callback) callback();
+                }
+            }, 30); // 文字表示速度
+        }
+
+        function loadScenario() {
+            if (currentIdx >= scenarioData.length) {
+                showEndGame(true);
+                return;
+            }
+
+            const data = scenarioData[currentIdx];
+            scenarioTitle.innerText = data.title;
+            charSprite.innerText = data.char;
+            visualCue.innerText = data.cue;
+            lvVal.innerText = currentIdx + 1;
+
+            typeMessage(data.message, () => {
+                choicesEl.classList.remove('hidden');
+                // ボタンのテキスト更新
+                const buttons = choicesEl.getElementsByTagName('button');
+                buttons[0].innerText = data.choices[0];
+                buttons[1].innerText = data.choices[1];
+            });
+        }
+
+        function makeChoice(choiceIdx) {
+            if (isTyping) return;
+
+            const data = scenarioData[currentIdx];
+            if (choiceIdx === data.correct) {
+                exp++;
+                expVal.innerText = exp;
+                typeMessage(`【正解！】\n${data.explanation}`, () => {
+                    setTimeout(() => {
+                        currentIdx++;
+                        loadScenario();
+                    }, 2500);
+                });
+            } else {
+                hp -= 20;
+                hpVal.innerText = hp;
+                document.getElementById('game-screen').classList.add('shake');
+                setTimeout(() => document.getElementById('game-screen').classList.remove('shake'), 500);
+                
+                if (hp <= 0) {
+                    showEndGame(false);
+                } else {
+                    typeMessage("【ミス！】黙読だけでは集中力が削られていく…。やはり声を出すべきだったか。", () => {
+                        setTimeout(() => loadScenario(), 2000);
+                    });
+                }
+            }
+        }
+
+        function showEndGame(isWin) {
+            overlay.classList.remove('hidden');
+            const title = document.getElementById('overlay-title');
+            const text = document.getElementById('overlay-text');
+            if (isWin) {
+                title.innerText = "MISSION COMPLETE";
+                title.className = "text-4xl mb-8 text-yellow-400";
+                text.innerText = "おめでとう！君は「音読の極意」を完全にマスターした。これでどんな難問も、声を武器に突破できるはずだ！";
+            } else {
+                title.innerText = "GAME OVER";
+                title.className = "text-4xl mb-8 text-red-500";
+                text.innerText = "黙読の呪いによって集中力が尽きてしまった…。音読の力を信じて再挑戦しよう。";
+            }
+        }
+
+        window.onload = () => {
+            loadScenario();
+        };
+    </script>
+</body>
+</html>
