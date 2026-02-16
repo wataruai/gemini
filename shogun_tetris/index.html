@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>戦国の組み木細工の陣立書</title>
+    <style>
+        /* 城壁の装飾 */
+        body {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #2c3e50; /* 闇夜の色 */
+            font-family: 'serif';
+        }
+        /* 盤面（広場）の装飾 */
+        canvas {
+            border: 5px solid #ecf0f1; /* 白銀の縁取り */
+            background-color: #34495e; /* 陣地の地色 */
+            display: block;
+            margin: 20px auto;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5); /* 影を落とす */
+        }
+        h1 {
+            color: #ecf0f1;
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+        p.guide {
+            color: #ecf0f1;
+            font-size: 14px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>得点: 0</h1>
+    <!-- 築城の土台：キャンバスを設置 -->
+    <canvas id="tetrisCanvas" width="240" height="480"></canvas>
+    <p class="guide">采配：←→ (移動) | ↓ (加速) | ↑/X/Z (回転) | Space (一気落とし)</p>
+
+    <script>
+        // 機巧の仕込み（JavaScript）
+        const canvas = document.getElementById('tetrisCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 陣地の規模設定
+        const COLS = 10;
+        const ROWS = 20;
+        const BLOCK_SIZE = 24;
+
+        // 盤面（陣地）の初期化
+        const board = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+
+        // ブロックの色（軍旗の色）
+        const COLORS = [
+            null, // 0: 空き地
+            '#00FFFF', '#0000FF', '#FFA500', '#FFFF00', '#00FF00', '#800080', '#FF0000'
+        ];
+
+        // テトリミノの形状（陣形）
+        const SHAPES = [
+            [[0,0,0,0], [1,1,1,1], [0,0,0,0], [0,0,0,0]], // I (水色)
+            [[2,0,0], [2,2,2], [0,0,0]], // J (青)
+            [[0,0,3], [3,3,3], [0,0,0]], // L (橙)
+            [[4,4], [4,4]], // O (黄)
+            [[0,5,5], [5,5,0], [0,0,0]], // S (緑)
+            [[0,6,0], [6,6,6], [0,0,0]], // T (紫)
+            [[7,7,0], [0,7,7], [0,0,0]] // Z (赤)
+        ];
+
+        let currentPiece; // 現在操作中の駒
+        let score = 0;
+        let dropCounter = 0;
+        let dropInterval = 1000; // 落下間隔（初期値1秒）
+        let lastTime = 0;
+
+        // 新しい駒を生成する儀式
+        function createPiece() {
+            const index = Math.floor(Math.random() * SHAPES.length);
+            const shape = SHAPES[index];
+            const type = index + 1;
+
+            currentPiece = {
+                shape: JSON.parse(JSON.stringify(shape)), // 形状を複製
+                type: type,
+                x: Math.floor(COLS / 2) - Math.floor(shape[0].length / 2), // 中央に配置
+                y: 0
+            };
+
+            // 生成時に衝突したらゲームオーバー
+            if (checkCollision(0, 0)) {
+                alert(`御乱心！戦は終結いたしました。得点: ${score}`);
+                board.forEach(row => row.fill(0)); // 盤面をリセット
+                score = 0;
+                dropInterval = 1000;
+            }
+        }
+
+        // 描画の術
+        function drawMatrix(matrix, offsetX, offsetY) {
+            matrix.forEach((row, y) => {
+                row.forEach((value, x) => {
+                    if (value !== 0) {
+                        ctx.fillStyle = COLORS[value];
+                        ctx.fillRect((offsetX + x) * BLOCK_SIZE, (offsetY + y) * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+                        ctx.strokeStyle = '#222'; // ブロックの縁
+                        ctx.strokeRect((offsetX + x) * BLOCK_SIZE, (offsetY + y) * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+                    }
+                });
+            });
+        }
+
+        // 盤面全体への布陣
+        function draw() {
+            // 盤面を陣地の地色で塗りつぶす
+            ctx.fillStyle = '#34495e';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 固定された陣を描画
+            drawMatrix(board, 0, 0);
+
+            // 現在の駒を描画
+            if (currentPiece) {
+                drawMatrix(currentPiece.shape, currentPiece.x, currentPiece.y);
+            }
+
+            // 得点の報告
+            document.querySelector('h1').textContent = `得点: ${score}`;
+        }
+
+        // 衝突判定（次の位置に障害がないか確認）
+        function checkCollision(moveX, moveY, newShape = currentPiece.shape) {
+            const shape = newShape;
+            const pieceX = currentPiece.x + moveX;
+            const pieceY = currentPiece.y + moveY;
+
+            for (let y = 0; y < shape.length; y++) {
+                for (let x = 0; x < shape[y].length; x++) {
+                    if (shape[y][x] !== 0) {
+                        const boardX = pieceX + x;
+                        const boardY = pieceY + y;
+
+                        // 1. 盤面外の判定 2. 既存のブロックとの衝突判定
+                        if (boardX < 0 || boardX >= COLS || boardY >= ROWS || 
+                           (boardY >= 0 && board[boardY][boardX] !== 0)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        // 駒を盤面に固定し、陣地を固める
+        function mergePiece() {
+            currentPiece.shape.forEach((row, y) => {
+                row.forEach((value, x) => {
+                    if (value !== 0) {
+                        const boardX = currentPiece.x + x;
+                        const boardY = currentPiece.y + y;
+                        if (boardY >= 0) {
+                            board[boardY][boardX] = currentPiece.type;
+                        }
+                    }
+                });
+            });
+            clearRows(); // 行の消去判定
+            createPiece(); // 次の駒を生成
+        }
+
+        // 行の消去と戦功の計算
+        function clearRows() {
+            let rowsCleared = 0;
+            outer: for (let y = ROWS - 1; y >= 0; y--) {
+                for (let x = 0; x < COLS; x++) {
+                    if (board[y][x] === 0) {
+                        continue outer; // 隙間があれば次の行へ
+                    }
+                }
+                
+                // 行が埋まっていたら、その行を破壊し、新しい行を天に追加
+                const row = board.splice(y, 1)[0].fill(0);
+                board.unshift(row);
+                y++; // 削除した分、チェックを一つ戻す
+                rowsCleared++;
+            }
+
+            if (rowsCleared > 0) {
+                // 戦功（得点）計算：連鎖ボーナスあり
+                score += rowsCleared * 100 * (2 ** (rowsCleared - 1));
+                // 難易度調整：落下速度を速める (最小100ms)
+                dropInterval = Math.max(100, dropInterval * (0.9 ** rowsCleared)); 
+            }
+        }
+
+        // 駒の回転処理（転置と反転）
+        function rotate(matrix, dir) {
+            // 回転操作を行うために形状を複製
+            const newMatrix = matrix.map(row => [...row]); 
+
+            // 1. 転置 (行と列の入れ替え)
+            for (let y = 0; y < newMatrix.length; y++) {
+                for (let x = 0; x < y; x++) {
+                    [newMatrix[x][y], newMatrix[y][x]] = [newMatrix[y][x], newMatrix[x][y]];
+                }
+            }
+
+            // 2. 反転 (回転方向の決定)
+            if (dir > 0) {
+                newMatrix.forEach(row => row.reverse()); // 時計回り
+            } else {
+                newMatrix.reverse(); // 反時計回り
+            }
+            
+            // 回転後の衝突回避 (壁蹴り)
+            let offset = 1;
+            const originalX = currentPiece.x;
+            
+            while(checkCollision(0, 0, newMatrix)) {
+                // 左右にずらして試みる
+                currentPiece.x += offset;
+                offset = -(offset + (offset > 0 ? 1 : -1)); // 1, -2, 3, -4 ...とずらす
+                
+                if (Math.abs(offset) > newMatrix.length) { 
+                    // 衝突回避失敗：元の形状と位置に戻す
+                    currentPiece.x = originalX;
+                    return matrix; // 回転前の形状を維持
+                }
+            }
+            return newMatrix; // 回転成功
+        }
+
+
+        // メインゲームループ（時間の流れ）
+        function update(time = 0) {
+            const deltaTime = time - lastTime;
+            lastTime = time;
+
+            dropCounter += deltaTime;
+
+            if (dropCounter > dropInterval) {
+                if (!checkCollision(0, 1)) {
+                    currentPiece.y++; // 落下
+                } else {
+                    mergePiece(); // 固定
+                }
+                dropCounter = 0;
+            }
+
+            draw();
+            // 次の描画タイミングを待つ
+            requestAnimationFrame(update);
+        }
+
+        // キーボード入力による采配
+        document.addEventListener('keydown', event => {
+            if (!currentPiece) return;
+
+            switch (event.key) {
+                case 'ArrowLeft': 
+                    if (!checkCollision(-1, 0)) currentPiece.x--;
+                    break;
+                case 'ArrowRight': 
+                    if (!checkCollision(1, 0)) currentPiece.x++;
+                    break;
+                case 'ArrowDown': // ソフトドロップ (加速)
+                    if (!checkCollision(0, 1)) currentPiece.y++;
+                    dropCounter = 0; // 加速直後に次のドロップを抑制
+                    break;
+                case 'ArrowUp': 
+                case 'x': // 時計回り回転
+                    currentPiece.shape = rotate(currentPiece.shape, 1);
+                    break;
+                case 'z': // 反時計回り回転
+                    currentPiece.shape = rotate(currentPiece.shape, -1);
+                    break;
+                case ' ': // スペースバー：ハードドロップ（一気に落とす）
+                    while (!checkCollision(0, 1)) {
+                        currentPiece.y++;
+                    }
+                    mergePiece();
+                    break;
+            }
+            draw();
+        });
+
+        // 戦を開始する
+        createPiece();
+        update();
+
+    </script>
+</body>
+</html>
