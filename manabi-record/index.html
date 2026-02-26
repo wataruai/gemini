@@ -1,0 +1,26 @@
+<!-- ========== AIサポートチャットUI ========== -->
+<div id="ai-chat-container" class="chat-closed">
+  <!-- チャットウィンドウ -->
+  <div id="chat-window">
+    <div class="chat-header">
+      <span>🤖 まなびアシスタント</span>
+      <button id="chat-close-btn">&times;</button>
+    </div>
+    <div id="chat-messages">
+      <div class="message ai">こんにちは！今日の学習で分からないことや、学習計画の相談はありますか？</div>
+    </div>
+    <div class="chat-input-area">
+      <input type="text" id="chat-input" placeholder="質問や相談を入力..." autocomplete="off" />
+      <button id="chat-send-btn">
+        <svg viewBox="0 0 24 24" fill="#007BFF" width="20" height="20"><path d="M2,21L23,12L2,3V10L17,12L2,14V21Z" /></svg>
+      </button>
+    </div>
+  </div>
+  <!-- フローティングボタン -->
+  <button id="chat-fab">
+    <svg viewBox="0 0 24 24" fill="white" width="28" height="28"><path d="M12,2A10,10 0 0,1 22,12C22,17.52 17.52,22 12,22C10.3,22 8.71,21.57 7.33,20.83L2,22L3.17,16.67C2.43,15.29 2,13.7 2,12A10,10 0 0,1 12,2M12,4A8,8 0 0,0 4,12C4,13.85 4.63,15.55 5.68,16.91L5,20L8.09,19.32C9.45,20.37 11.15,21 13,21A8,8 0 0,0 21,13A8,8 0 0,0 13,5H12Z" /></svg>
+  </button>
+</div>
+
+<!-- モジュール読み込み -->
+<script type="module" src="js/ai-chat.js"></script>
