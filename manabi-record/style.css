@@ -1,0 +1,79 @@
+/* ========== AIチャット UI ========== */
+#ai-chat-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+/* フローティングボタン */
+#chat-fab {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: #007BFF;
+  border: none;
+  box-shadow: 0 4px 12px rgba(0,123,255,0.4);
+  cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+#chat-fab:hover { transform: scale(1.1); }
+
+/* チャットウィンドウ */
+#chat-window {
+  width: 340px;
+  height: 480px;
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 16px;
+  overflow: hidden;
+  transition: opacity 0.3s, transform 0.3s;
+  transform-origin: bottom right;
+}
+
+.chat-closed #chat-window {
+  opacity: 0;
+  transform: scale(0.5);
+  pointer-events: none;
+}
+
+.chat-header {
+  background: #007BFF;
+  color: white;
+  padding: 16px;
+  font-weight: bold;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+#chat-close-btn { background: none; border: none; color: white; font-size: 24px; cursor: pointer; }
+
+#chat-messages {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: #f8f9fa;
+}
+
+.message { max-width: 80%; padding: 10px 14px; border-radius: 14px; font-size: 0.9rem; line-height: 1.4; word-wrap: break-word; }
+.message.ai { background: #ffffff; align-self: flex-start; border-bottom-left-radius: 2px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+.message.user { background: #007BFF; color: white; align-self: flex-end; border-bottom-right-radius: 2px; }
+
+.chat-input-area {
+  display: flex;
+  padding: 12px;
+  background: #ffffff;
+  border-top: 1px solid #eee;
+}
+#chat-input { flex: 1; border: 1px solid #ddd; border-radius: 20px; padding: 8px 16px; outline: none; }
+#chat-input:focus { border-color: #007BFF; }
+#chat-send-btn { background: none; border: none; cursor: pointer; margin-left: 8px; padding: 4px; }
