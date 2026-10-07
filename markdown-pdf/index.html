@@ -1,1 +1,808 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MarkdownをPDF化</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Marked.js (Markdownパーサー) -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- KaTeX (数式表示) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
+  <!-- html2canvas (画像書き出し用) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
+  <style>
+    /* プレビュー用紙（ポワンポワンする原因だったtransitionアニメーションを完全排除） */
+    .preview-sheet {
+      background: white;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.18);
+      margin: 0 auto 30px auto;
+      box-sizing: border-box;
+      transform-origin: top center;
+      /* transition は設定しない（揺れ防止） */
+    }
+
+    .sub-slot {
+      border: 1px dashed #cbd5e1;
+      box-sizing: border-box;
+      overflow: hidden;
+      background: #fafafa;
+    }
+
+    /* Markdown 装飾スタイル */
+    .markdown-body {
+      color: #1e293b;
+      word-break: break-word;
+      line-height: 1.65;
+    }
+    .markdown-body h1 { font-size: 1.6em; font-weight: bold; border-bottom: 2px solid #2563eb; padding-bottom: 0.2em; margin: 0.8em 0 0.4em; }
+    .markdown-body h2 { font-size: 1.35em; font-weight: bold; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.2em; margin: 0.7em 0 0.3em; }
+    .markdown-body h3 { font-size: 1.15em; font-weight: bold; margin: 0.6em 0 0.25em; color: #1e40af; }
+    .markdown-body p { margin-bottom: 0.6em; }
+    .markdown-body ul { list-style: disc; padding-left: 1.4em; margin-bottom: 0.6em; }
+    .markdown-body ol { list-style: decimal; padding-left: 1.4em; margin-bottom: 0.6em; }
+    .markdown-body blockquote { 
+      border-left: 4px solid #3b82f6; 
+      background: #f8fafc;
+      padding: 0.6em 1em; 
+      color: #334155; 
+      margin: 0.8em 0; 
+      border-radius: 0 4px 4px 0;
+    }
+    .markdown-body code { background: #f1f5f9; padding: 0.15em 0.35em; border-radius: 3px; font-family: monospace; font-size: 0.9em; }
+    .markdown-body pre { background: #0f172a; color: #f8fafc; padding: 0.8em; border-radius: 6px; overflow-x: auto; margin-bottom: 0.8em; }
+    .markdown-body pre code { background: transparent; color: inherit; }
+    .markdown-body table { width: 100%; border-collapse: collapse; margin-bottom: 0.8em; }
+    .markdown-body th, .markdown-body td { border: 1px solid #cbd5e1; padding: 0.4em 0.6em; }
+    .markdown-body th { background: #f1f5f9; font-weight: bold; }
+    .katex-display { margin: 0.6em 0 !important; overflow-x: auto; overflow-y: hidden; }
+
+    /* 境界ドラッグバー */
+    #resizer {
+      width: 6px;
+      cursor: col-resize;
+      background-color: #cbd5e1;
+      transition: background-color 0.2s;
+    }
+    #resizer:hover, #resizer.resizing {
+      background-color: #3b82f6;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 h-screen flex flex-col font-sans select-none">
+
+  <!-- ヘッダーメニュー -->
+  <header class="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between shadow-sm z-20 flex-wrap gap-2 text-xs">
+    <!-- アプリ名 ＆ アイコン -->
+    <div class="flex items-center space-x-2.5">
+      <img src="https://raw.githubusercontent.com/wataruai/gemini/main/markdown-pdf/MDtoPDF_2.jpg" 
+           alt="ロゴ" 
+           class="w-7 h-7 rounded object-cover shadow-sm border border-slate-200"
+           onerror="this.src='https://github.com/wataruai/gemini/raw/main/markdown-pdf/MDtoPDF_2.jpg';">
+      <h1 class="font-bold text-sm text-slate-800 tracking-tight">MarkdownをPDF化</h1>
+    </div>
+
+    <!-- 印刷・レイアウト設定群 -->
+    <div class="flex items-center space-x-3 flex-wrap">
+      <!-- 用紙サイズ指定 -->
+      <div class="flex items-center space-x-1">
+        <label for="paper-size" class="font-semibold text-slate-600">用紙:</label>
+        <select id="paper-size" class="border border-slate-300 rounded px-1.5 py-1 bg-white focus:outline-blue-500 font-medium">
+          <option value="A4" selected>A4</option>
+          <option value="A3">A3</option>
+          <option value="A5">A5</option>
+          <option value="B4">B4</option>
+          <option value="B5">B5</option>
+        </select>
+      </div>
+
+      <!-- 面付け -->
+      <div class="flex items-center space-x-1">
+        <label for="nup-select" class="font-semibold text-slate-600">面付け:</label>
+        <select id="nup-select" class="border border-slate-300 rounded px-1.5 py-1 bg-white focus:outline-blue-500">
+          <option value="1">1面</option>
+          <option value="2">2面</option>
+          <option value="4">4面</option>
+        </select>
+      </div>
+
+      <!-- 余白 -->
+      <div class="flex items-center space-x-1">
+        <label for="margin-select" class="font-semibold text-slate-600">余白:</label>
+        <select id="margin-select" class="border border-slate-300 rounded px-1.5 py-1 bg-white focus:outline-blue-500">
+          <option value="8">極小 (8mm)</option>
+          <option value="12">狭い (12mm)</option>
+          <option value="18" selected>標準 (18mm)</option>
+          <option value="25">広い (25mm)</option>
+        </select>
+      </div>
+
+      <!-- フォント設定 -->
+      <div class="flex items-center space-x-1 border-l pl-2 border-slate-200">
+        <label for="font-select" class="font-semibold text-slate-600">フォント:</label>
+        <select id="font-select" class="border border-slate-300 rounded px-1.5 py-1 bg-white focus:outline-blue-500 max-w-[120px]"></select>
+        <button id="btn-fav-add" class="p-1 text-amber-500 hover:text-amber-600 text-sm font-bold" title="お気に入りに保存">★</button>
+        <button id="btn-fav-del" class="p-1 text-slate-400 hover:text-red-500" title="お気に入り削除">🗑️</button>
+        <button id="btn-load-local-fonts" class="bg-slate-200 hover:bg-slate-300 px-1.5 py-1 rounded transition text-[11px]">端末検索</button>
+      </div>
+
+      <!-- iPhone風 通常改行トグルスイッチ -->
+      <div class="flex items-center space-x-2 border-l pl-3 border-slate-200">
+        <label class="relative inline-flex items-center cursor-pointer">
+          <input type="checkbox" id="chk-breaks" class="sr-only peer" checked>
+          <div class="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+          <span class="ml-2 text-xs font-semibold text-slate-700 select-none">通常改行</span>
+        </label>
+      </div>
+
+      <!-- 出力ボタン -->
+      <div class="flex items-center space-x-1.5 border-l pl-2 border-slate-200">
+        <button id="btn-open-export-modal" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-3 py-1 rounded shadow flex items-center space-x-1 transition">
+          <span>💾 出力 (PDF/画像)</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- メインワークスペース -->
+  <main class="flex-1 flex overflow-hidden select-text relative" id="split-container">
+    
+    <!-- 左ペイン：エディタ -->
+    <section id="pane-editor" class="w-1/2 flex flex-col bg-white overflow-hidden min-w-[280px]">
+      <div class="bg-slate-50 px-3 py-1.5 border-b border-slate-200 flex justify-between items-center text-xs flex-wrap gap-1">
+        <div class="flex items-center space-x-2">
+          <button id="btn-insert-pagebreak" class="bg-white hover:bg-blue-50 hover:text-blue-700 text-slate-700 font-medium px-2 py-1 rounded border border-slate-300 shadow-sm transition">
+            ✂️ ここで改ページ (---)
+          </button>
+          <button id="btn-clear-all" class="bg-white hover:bg-red-50 hover:text-red-600 text-slate-600 px-2 py-1 rounded border border-slate-300 shadow-sm transition">
+            🗑️ 入力全消去
+          </button>
+        </div>
+        <button id="btn-sample" class="text-blue-600 hover:underline">数式サンプル読込</button>
+      </div>
+      <textarea id="markdown-input" class="w-full flex-1 p-4 font-mono text-sm resize-none focus:outline-none" placeholder="MarkdownやLaTeX数式を入力してください..."></textarea>
+    </section>
+
+    <!-- 左右ドラッグリサイザー -->
+    <div id="resizer"></div>
+
+    <!-- 右ペイン：プレビューエリア -->
+    <section id="pane-preview" class="flex-1 overflow-auto bg-slate-300 p-6 flex flex-col items-center relative">
+      <!-- ズーム表示バー -->
+      <div class="sticky top-0 mb-4 bg-white/95 backdrop-blur border border-slate-300 px-3 py-1 rounded-full shadow text-xs flex items-center space-x-3 z-10">
+        <label class="flex items-center space-x-1 cursor-pointer">
+          <input type="checkbox" id="chk-auto-fit" class="rounded text-blue-600" checked>
+          <span>幅に自動フィット</span>
+        </label>
+        <span class="text-slate-300">|</span>
+        <div class="flex items-center space-x-1">
+          <span>倍率:</span>
+          <input type="range" id="zoom-slider" min="30" max="150" value="80" class="w-20 cursor-pointer" disabled>
+          <span id="zoom-label" class="w-10 text-right font-mono">80%</span>
+        </div>
+      </div>
+
+      <!-- 用紙プレビューコンテナ -->
+      <div id="preview-area" class="origin-top flex flex-col items-center"></div>
+    </section>
+  </main>
+
+  <!-- 出力モーダル -->
+  <div id="export-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-lg p-6 space-y-4 text-xs">
+      <div class="flex justify-between items-center border-b pb-2">
+        <h3 class="text-sm font-bold text-slate-800">文書の書き出し設定</h3>
+        <button id="btn-close-modal" class="text-slate-400 hover:text-slate-600 text-lg leading-none">&times;</button>
+      </div>
+
+      <div>
+        <label class="block font-semibold text-slate-700 mb-1">出力ファイル名:</label>
+        <div class="flex space-x-1">
+          <input type="text" id="export-filename" class="flex-1 border border-slate-300 rounded px-2.5 py-1.5 font-mono text-xs focus:outline-blue-500" value="ドキュメント">
+          <button id="btn-insert-date" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1.5 rounded border border-slate-300 transition" title="今日の日付を付加">
+            📅 日付挿入
+          </button>
+        </div>
+      </div>
+
+      <!-- 命名規則パターン -->
+      <div class="bg-slate-50 p-2.5 rounded border border-slate-200 space-y-2">
+        <span class="font-semibold text-slate-700">★ 命名規則パターン (LocalStorage保存):</span>
+        <div class="flex space-x-1">
+          <select id="naming-pattern-select" class="flex-1 border border-slate-300 rounded px-2 py-1 bg-white"></select>
+          <button id="btn-apply-pattern" class="bg-blue-100 hover:bg-blue-200 text-blue-800 px-2.5 py-1 rounded font-medium">適用</button>
+          <button id="btn-del-pattern" class="bg-slate-200 hover:bg-red-100 hover:text-red-700 px-2 py-1 rounded">削除</button>
+        </div>
+        <div class="flex space-x-1 pt-1">
+          <input type="text" id="new-pattern-input" class="flex-1 border border-slate-300 rounded px-2 py-1 placeholder-slate-400" placeholder="例: 【数学】_{YYYYMMDD}_{TITLE}">
+          <button id="btn-save-pattern" class="bg-slate-200 hover:bg-slate-300 px-2.5 py-1 rounded font-medium">新規保存</button>
+        </div>
+        <p class="text-[10px] text-slate-500">※利用可能変数: {YYYYMMDD}, {YYYY-MM-DD}, {TIME}, {TITLE}</p>
+      </div>
+
+      <!-- 出力ボタン -->
+      <div class="border-t pt-3 flex flex-col space-y-2">
+        <span class="font-semibold text-slate-700">保存形式を選択して実行:</span>
+        <div class="grid grid-cols-3 gap-2">
+          <button id="btn-export-pdf" class="bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-semibold text-center transition flex flex-col items-center justify-center">
+            <span class="text-sm">🖨️ PDF</span>
+            <span class="text-[10px] opacity-80">(別タブ・高画質)</span>
+          </button>
+          <button id="btn-export-png" class="bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded font-semibold text-center transition flex flex-col items-center justify-center">
+            <span class="text-sm">🖼️ PNG画像</span>
+            <span class="text-[10px] opacity-80">(各ページ保存)</span>
+          </button>
+          <button id="btn-export-jpg" class="bg-amber-600 hover:bg-amber-700 text-white py-2 rounded font-semibold text-center transition flex flex-col items-center justify-center">
+            <span class="text-sm">📷 JPG画像</span>
+            <span class="text-[10px] opacity-80">(軽量保存)</span>
+          </button>
+        </div>
+      </div>
+      <div id="export-status" class="text-center font-bold text-blue-600 hidden">画像書き出し処理中...</div>
+    </div>
+  </div>
+
+  <script>
+    // 寸法設定 (mm)
+    const PAPER_SIZES = {
+      'A3': { w: 297, h: 420 },
+      'A4': { w: 210, h: 297 },
+      'A5': { w: 148, h: 210 },
+      'B4': { w: 257, h: 364 },
+      'B5': { w: 182, h: 257 }
+    };
+
+    // DOM要素
+    const markdownInput = document.getElementById('markdown-input');
+    const previewArea = document.getElementById('preview-area');
+    const panePreview = document.getElementById('pane-preview');
+    const paperSizeSelect = document.getElementById('paper-size');
+    const nupSelect = document.getElementById('nup-select');
+    const marginSelect = document.getElementById('margin-select');
+    const fontSelect = document.getElementById('font-select');
+    const chkBreaks = document.getElementById('chk-breaks');
+    const btnInsertPagebreak = document.getElementById('btn-insert-pagebreak');
+    const btnClearAll = document.getElementById('btn-clear-all');
+    const btnSample = document.getElementById('btn-sample');
+    const chkAutoFit = document.getElementById('chk-auto-fit');
+    const zoomSlider = document.getElementById('zoom-slider');
+    const zoomLabel = document.getElementById('zoom-label');
+
+    // モーダル要素
+    const exportModal = document.getElementById('export-modal');
+    const btnOpenExportModal = document.getElementById('btn-open-export-modal');
+    const btnCloseModal = document.getElementById('btn-close-modal');
+    const exportFilenameInput = document.getElementById('export-filename');
+    const btnInsertDate = document.getElementById('btn-insert-date');
+    const namingPatternSelect = document.getElementById('naming-pattern-select');
+    const btnApplyPattern = document.getElementById('btn-apply-pattern');
+    const btnDelPattern = document.getElementById('btn-del-pattern');
+    const newPatternInput = document.getElementById('new-pattern-input');
+    const btnSavePattern = document.getElementById('btn-save-pattern');
+    const btnExportPdf = document.getElementById('btn-export-pdf');
+    const btnExportPng = document.getElementById('btn-export-png');
+    const btnExportJpg = document.getElementById('btn-export-jpg');
+    const exportStatus = document.getElementById('export-status');
+
+    // フォント
+    const FONT_STORAGE_KEY = 'fav_fonts_doc_studio';
+    let favoriteFonts = JSON.parse(localStorage.getItem(FONT_STORAGE_KEY)) || [
+      { name: '標準ゴシック', value: 'sans-serif' },
+      { name: '標準明朝 (数式向き)', value: "'Times New Roman', 'Yu Mincho', '游明朝', serif" },
+      { name: '游ゴシック', value: "'Yu Gothic', '游ゴシック', sans-serif" },
+      { name: 'BIZ UDPゴシック', value: "'BIZ UDPGothic', sans-serif" }
+    ];
+    let systemFonts = [];
+
+    // 命名パターン
+    const PATTERN_STORAGE_KEY = 'naming_patterns_doc_studio';
+    let namingPatterns = JSON.parse(localStorage.getItem(PATTERN_STORAGE_KEY)) || [
+      { name: '日付_タイトル', pattern: '{YYYYMMDD}_{TITLE}' },
+      { name: 'タイトル_日付_時刻', pattern: '{TITLE}_{YYYY-MM-DD}_{TIME}' },
+      { name: '【数学解説】_日付', pattern: '【数学解説】_{YYYYMMDD}' }
+    ];
+
+    function updatePatternList() {
+      namingPatternSelect.innerHTML = '';
+      namingPatterns.forEach((p) => {
+        const opt = document.createElement('option');
+        opt.value = p.pattern;
+        opt.textContent = `${p.name} (${p.pattern})`;
+        namingPatternSelect.appendChild(opt);
+      });
+    }
+
+    btnSavePattern.addEventListener('click', () => {
+      const pat = newPatternInput.value.trim();
+      if (!pat) return alert('パターンを入力してください');
+      const name = prompt('パターンの表示名:', 'カスタム');
+      if (!name) return;
+      namingPatterns.push({ name, pattern: pat });
+      localStorage.setItem(PATTERN_STORAGE_KEY, JSON.stringify(namingPatterns));
+      updatePatternList();
+      namingPatternSelect.value = pat;
+      newPatternInput.value = '';
+    });
+
+    btnDelPattern.addEventListener('click', () => {
+      if (namingPatterns.length <= 1) return;
+      namingPatterns = namingPatterns.filter(p => p.pattern !== namingPatternSelect.value);
+      localStorage.setItem(PATTERN_STORAGE_KEY, JSON.stringify(namingPatterns));
+      updatePatternList();
+    });
+
+    function getDateStrings() {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      const d = String(now.getDate()).padStart(2, '0');
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      return {
+        YYYYMMDD: `${y}${m}${d}`,
+        'YYYY-MM-DD': `${y}-${m}-${d}`,
+        TIME: `${hh}${mm}`
+      };
+    }
+
+    btnApplyPattern.addEventListener('click', () => {
+      const pat = namingPatternSelect.value;
+      const dates = getDateStrings();
+      const currentTitle = exportFilenameInput.value.trim() || 'ドキュメント';
+      exportFilenameInput.value = pat
+        .replace(/{YYYYMMDD}/g, dates.YYYYMMDD)
+        .replace(/{YYYY-MM-DD}/g, dates['YYYY-MM-DD'])
+        .replace(/{TIME}/g, dates.TIME)
+        .replace(/{TITLE}/g, currentTitle);
+    });
+
+    btnInsertDate.addEventListener('click', () => {
+      const dates = getDateStrings();
+      exportFilenameInput.value += `_${dates.YYYYMMDD}`;
+    });
+
+    function updateFontSelect() {
+      const sel = fontSelect.value;
+      fontSelect.innerHTML = '';
+      const grpFav = document.createElement('optgroup');
+      grpFav.label = '★ お気に入り';
+      favoriteFonts.forEach(f => {
+        const opt = document.createElement('option');
+        opt.value = f.value;
+        opt.textContent = f.name;
+        grpFav.appendChild(opt);
+      });
+      fontSelect.appendChild(grpFav);
+
+      if (systemFonts.length > 0) {
+        const grpSys = document.createElement('optgroup');
+        grpSys.label = '端末フォント';
+        systemFonts.forEach(family => {
+          const opt = document.createElement('option');
+          opt.value = `"${family}", sans-serif`;
+          opt.textContent = family;
+          grpSys.appendChild(opt);
+        });
+        fontSelect.appendChild(grpSys);
+      }
+      if (sel) fontSelect.value = sel;
+    }
+
+    document.getElementById('btn-fav-add').addEventListener('click', () => {
+      const currentVal = fontSelect.value;
+      const currentText = fontSelect.options[fontSelect.selectedIndex].text.replace(/^★\s*/, '');
+      if (favoriteFonts.some(f => f.value === currentVal)) return alert('登録済みです');
+      favoriteFonts.push({ name: currentText, value: currentVal });
+      localStorage.setItem(FONT_STORAGE_KEY, JSON.stringify(favoriteFonts));
+      updateFontSelect();
+      fontSelect.value = currentVal;
+    });
+
+    document.getElementById('btn-fav-del').addEventListener('click', () => {
+      if (favoriteFonts.length <= 1) return;
+      favoriteFonts = favoriteFonts.filter(f => f.value !== fontSelect.value);
+      localStorage.setItem(FONT_STORAGE_KEY, JSON.stringify(favoriteFonts));
+      updateFontSelect();
+      render();
+    });
+
+    document.getElementById('btn-load-local-fonts').addEventListener('click', async () => {
+      if ('queryLocalFonts' in window) {
+        try {
+          const fonts = await window.queryLocalFonts();
+          const s = new Set();
+          fonts.forEach(f => s.add(f.family));
+          systemFonts = Array.from(s).sort();
+          updateFontSelect();
+          alert(`${systemFonts.length}件の端末フォントを取得しました`);
+        } catch (e) {
+          alert('アクセスが許可されませんでした: ' + e.message);
+        }
+      } else {
+        const f = prompt('フォント名を入力してください:');
+        if (f) {
+          systemFonts.push(f);
+          updateFontSelect();
+          fontSelect.value = `"${f}", sans-serif`;
+          render();
+        }
+      }
+    });
+
+    // ✂️ 改ページ挿入
+    btnInsertPagebreak.addEventListener('click', () => {
+      const ta = markdownInput;
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
+      const text = ta.value;
+      const ins = "\n\n---\n\n";
+      ta.value = text.substring(0, start) + ins + text.substring(end);
+      ta.focus();
+      ta.selectionStart = ta.selectionEnd = start + ins.length;
+      render();
+    });
+
+    // 全消去
+    btnClearAll.addEventListener('click', () => {
+      if (confirm('入力内容をすべて消去しますか？')) {
+        markdownInput.value = '';
+        render();
+      }
+    });
+
+    /**
+     * AI特有の「スペース抜け」を自動補正する前処理関数
+     */
+    function fixAiMarkdownFormatting(text) {
+      if (!text) return '';
+      return text
+        // 1. 見出し記号 (#見出し -> # 見出し)
+        .replace(/(^|\n)(#{1,6})([^\s#\n])/g, '$1$2 $3')
+        // 2. 箇条書き記号 (*項目 や -項目 -> * 項目) ※ただし「---」等の水平線は除外
+        .replace(/(^|\n)([-*+])([^\s\-*+\n])/g, '$1$2 $3')
+        // 3. 引用記号 (>引用 -> > 引用)
+        .replace(/(^|\n)(>)([^\s>\n])/g, '$1$2 $3')
+        // 4. 番号付きリスト (1.項目 -> 1. 項目)
+        .replace(/(^|\n)(\d+\.)([^\s\n])/g, '$1$2 $3');
+    }
+
+    // KaTeX 数式変換
+    function applyMath(el) {
+      renderMathInElement(el, {
+        delimiters: [
+          { left: '$$', right: '$$', display: true },
+          { left: '$', right: '$', display: false }
+        ],
+        throwOnError: false
+      });
+    }
+
+    // デバウンス用タイマー（文字入力時の無駄な連続実行を防止）
+    let renderTimer = null;
+    let currentCalculatedScale = 1;
+
+    // プレビュー描画処理
+    function render(isDirect = false) {
+      if (!isDirect) {
+        clearTimeout(renderTimer);
+        renderTimer = setTimeout(() => render(true), 120);
+        return;
+      }
+
+      marked.setOptions({
+        breaks: chkBreaks.checked,
+        gfm: true
+      });
+
+      // AIスペース抜けを補正した上でマークダウン解釈
+      const rawText = fixAiMarkdownFormatting(markdownInput.value);
+      const sizeKey = paperSizeSelect.value;
+      const size = PAPER_SIZES[sizeKey];
+      const nup = parseInt(nupSelect.value, 10);
+      const marginMm = marginSelect.value;
+      const font = fontSelect.value;
+      const rawPages = rawText.split(/\n\s*---\s*\n/);
+
+      const isLandscape = (nup === 2);
+      const widthMm = isLandscape ? size.h : size.w;
+      const heightMm = isLandscape ? size.w : size.h;
+
+      previewArea.innerHTML = '';
+
+      if (nup === 1) {
+        rawPages.forEach(p => {
+          const sheet = document.createElement('div');
+          sheet.className = 'preview-sheet markdown-body';
+          sheet.style.width = `${widthMm}mm`;
+          sheet.style.minHeight = `${heightMm}mm`;
+          sheet.style.padding = `${marginMm}mm`;
+          sheet.style.fontFamily = font;
+          sheet.style.transform = `scale(${currentCalculatedScale})`;
+          sheet.innerHTML = marked.parse(p);
+          applyMath(sheet);
+          previewArea.appendChild(sheet);
+        });
+      } else {
+        const chunkSize = nup;
+        const fontSizeClass = nup === 2 ? 'text-xs' : 'text-[10px] leading-tight';
+
+        for (let i = 0; i < rawPages.length; i += chunkSize) {
+          const sheet = document.createElement('div');
+          sheet.className = 'preview-sheet';
+          sheet.style.width = `${widthMm}mm`;
+          sheet.style.minHeight = `${heightMm}mm`;
+          sheet.style.padding = `${marginMm}mm`;
+          sheet.style.fontFamily = font;
+          sheet.style.transform = `scale(${currentCalculatedScale})`;
+
+          if (nup === 2) {
+            sheet.style.display = 'grid';
+            sheet.style.gridTemplateColumns = '1fr 1fr';
+            sheet.style.gap = '8mm';
+          } else {
+            sheet.style.display = 'grid';
+            sheet.style.gridTemplateColumns = '1fr 1fr';
+            sheet.style.gridTemplateRows = '1fr 1fr';
+            sheet.style.gap = '6mm';
+          }
+
+          const chunk = rawPages.slice(i, i + chunkSize);
+          chunk.forEach(p => {
+            const slot = document.createElement('div');
+            slot.className = `sub-slot markdown-body ${fontSizeClass}`;
+            slot.innerHTML = marked.parse(p);
+            applyMath(slot);
+            sheet.appendChild(slot);
+          });
+
+          for (let k = chunk.length; k < chunkSize; k++) {
+            const empty = document.createElement('div');
+            empty.className = 'sub-slot opacity-10 border-slate-300';
+            sheet.appendChild(empty);
+          }
+          previewArea.appendChild(sheet);
+        }
+      }
+    }
+
+    // ズーム倍率の計算・適用（文字入力時は再計算せず、幅変更時のみ実行して揺れを完全防止）
+    function updateZoomScale() {
+      const sheets = document.querySelectorAll('.preview-sheet');
+      if (sheets.length === 0) return;
+
+      if (chkAutoFit.checked) {
+        const containerWidth = panePreview.clientWidth - 48;
+        const firstSheetWidth = sheets[0].offsetWidth;
+        if (firstSheetWidth > 0) {
+          currentCalculatedScale = Math.min(1.2, Math.max(0.3, containerWidth / firstSheetWidth));
+          zoomSlider.value = Math.round(currentCalculatedScale * 100);
+          zoomLabel.textContent = `${Math.round(currentCalculatedScale * 100)}%`;
+        }
+      } else {
+        currentCalculatedScale = zoomSlider.value / 100;
+        zoomLabel.textContent = `${zoomSlider.value}%`;
+      }
+
+      sheets.forEach(s => s.style.transform = `scale(${currentCalculatedScale})`);
+    }
+
+    chkAutoFit.addEventListener('change', () => {
+      zoomSlider.disabled = chkAutoFit.checked;
+      updateZoomScale();
+    });
+    zoomSlider.addEventListener('input', updateZoomScale);
+    window.addEventListener('resize', () => {
+      updateZoomScale();
+    });
+
+    // 左右スプリッター
+    const resizer = document.getElementById('resizer');
+    const paneEditor = document.getElementById('pane-editor');
+    let isResizing = false;
+
+    resizer.addEventListener('mousedown', () => {
+      isResizing = true;
+      resizer.classList.add('resizing');
+      document.body.style.cursor = 'col-resize';
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isResizing) return;
+      const containerRect = document.getElementById('split-container').getBoundingClientRect();
+      const newWidth = e.clientX - containerRect.left;
+      if (newWidth > 200 && newWidth < containerRect.width - 250) {
+        paneEditor.style.width = `${newWidth}px`;
+        updateZoomScale();
+      }
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (isResizing) {
+        isResizing = false;
+        resizer.classList.remove('resizing');
+        document.body.style.cursor = '';
+      }
+    });
+
+    // モーダル
+    btnOpenExportModal.addEventListener('click', () => exportModal.classList.remove('hidden'));
+    btnCloseModal.addEventListener('click', () => exportModal.classList.add('hidden'));
+
+    // PDF出力
+    btnExportPdf.addEventListener('click', () => {
+      const fileName = exportFilenameInput.value.trim() || 'MarkdownをPDF化';
+      const sizeKey = paperSizeSelect.value;
+      const size = PAPER_SIZES[sizeKey];
+      const nup = parseInt(nupSelect.value, 10);
+      const marginMm = marginSelect.value;
+      const font = fontSelect.value;
+      const rawText = fixAiMarkdownFormatting(markdownInput.value);
+      const rawPages = rawText.split(/\n\s*---\s*\n/);
+
+      const isLandscape = (nup === 2);
+      const pageOrientation = isLandscape ? 'landscape' : 'portrait';
+      const sheetWidth = isLandscape ? `${size.h}mm` : `${size.w}mm`;
+      const sheetHeight = isLandscape ? `${size.w}mm` : `${size.h}mm`;
+
+      marked.setOptions({ breaks: chkBreaks.checked, gfm: true });
+      let pagesHtml = '';
+
+      if (nup === 1) {
+        rawPages.forEach(p => {
+          pagesHtml += `<div class="print-page markdown-body">${marked.parse(p)}</div>`;
+        });
+      } else {
+        const chunkSize = nup;
+        const gridClass = nup === 2 ? 'grid-2up' : 'grid-4up';
+        const fontSizeClass = nup === 2 ? 'font-2up' : 'font-4up';
+
+        for (let i = 0; i < rawPages.length; i += chunkSize) {
+          const chunk = rawPages.slice(i, i + chunkSize);
+          let innerSlots = '';
+          chunk.forEach(p => {
+            innerSlots += `<div class="sub-slot markdown-body ${fontSizeClass}">${marked.parse(p)}</div>`;
+          });
+          for (let k = chunk.length; k < chunkSize; k++) {
+            innerSlots += `<div class="sub-slot empty-slot"></div>`;
+          }
+          pagesHtml += `<div class="print-page ${gridClass}">${innerSlots}</div>`;
+        }
+      }
+
+      const printWindow = window.open('', '_blank');
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>${fileName}</title>
+          <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+          <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"><\/script>
+          <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"><\/script>
+          <style>
+            @page {
+              size: ${sizeKey} ${pageOrientation};
+              margin: 0;
+            }
+            * { box-sizing: border-box; }
+            body {
+              margin: 0;
+              padding: 0;
+              font-family: ${font};
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+            .print-page {
+              width: ${sheetWidth};
+              height: ${sheetHeight};
+              padding: ${marginMm}mm;
+              page-break-after: always;
+              break-after: page;
+              overflow: hidden;
+            }
+            .grid-2up { display: grid; grid-template-columns: 1fr 1fr; gap: 8mm; }
+            .grid-4up { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 6mm; }
+            .sub-slot { border: 1px solid #cbd5e1; padding: 6mm; overflow: hidden; }
+            .empty-slot { border-style: dashed; border-color: #f1f5f9; }
+            .font-2up { font-size: 10.5pt; line-height: 1.5; }
+            .font-4up { font-size: 8pt; line-height: 1.35; }
+            .markdown-body { color: #111827; word-break: break-word; line-height: 1.65; }
+            .markdown-body h1 { font-size: 1.5em; font-weight: bold; border-bottom: 2px solid #2563eb; padding-bottom: 3px; margin: 0.6em 0 0.3em; }
+            .markdown-body h2 { font-size: 1.25em; font-weight: bold; border-bottom: 1px solid #cbd5e1; padding-bottom: 2px; margin: 0.5em 0 0.3em; }
+            .markdown-body h3 { font-size: 1.1em; font-weight: bold; margin: 0.4em 0 0.2em; color: #1e40af; }
+            .markdown-body p { margin-bottom: 0.6em; }
+            .markdown-body ul, .markdown-body ol { padding-left: 1.3em; margin-bottom: 0.6em; }
+            .markdown-body blockquote { border-left: 3px solid #2563eb; background: #f8fafc; padding: 6px 10px; margin: 0.6em 0; }
+            .markdown-body table { width: 100%; border-collapse: collapse; margin-bottom: 0.6em; }
+            .markdown-body th, .markdown-body td { border: 1px solid #cbd5e1; padding: 4px 6px; }
+            .markdown-body th { background: #f8fafc; }
+            .katex-display { margin: 0.5em 0 !important; }
+          </style>
+        </head>
+        <body>
+          ${pagesHtml}
+          <script>
+            window.addEventListener('DOMContentLoaded', () => {
+              renderMathInElement(document.body, {
+                delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}],
+                throwOnError: false
+              });
+              setTimeout(() => { window.print(); }, 500);
+            });
+          <\/script>
+        </body>
+        </html>
+      `);
+      printWindow.document.close();
+      exportModal.classList.add('hidden');
+    });
+
+    // 画像書き出し
+    async function exportImages(format) {
+      const sheets = document.querySelectorAll('.preview-sheet');
+      if (sheets.length === 0) return;
+
+      exportStatus.classList.remove('hidden');
+      const baseName = exportFilenameInput.value.trim() || 'MarkdownをPDF化';
+
+      sheets.forEach(s => s.style.transform = 'scale(1)');
+
+      for (let i = 0; i < sheets.length; i++) {
+        const canvas = await html2canvas(sheets[i], {
+          scale: 2,
+          useCORS: true,
+          logging: false
+        });
+
+        const link = document.createElement('a');
+        const ext = format === 'jpeg' ? 'jpg' : 'png';
+        const pageSuffix = sheets.length > 1 ? `_p${i + 1}` : '';
+        link.download = `${baseName}${pageSuffix}.${ext}`;
+        link.href = canvas.toDataURL(`image/${format}`, 0.92);
+        link.click();
+        await new Promise(r => setTimeout(r, 200));
+      }
+
+      updateZoomScale();
+      exportStatus.classList.add('hidden');
+      exportModal.classList.add('hidden');
+    }
+
+    btnExportPng.addEventListener('click', () => exportImages('png'));
+    btnExportJpg.addEventListener('click', () => exportImages('jpeg'));
+
+    // イベントリスナー
+    markdownInput.addEventListener('input', () => render(false));
+    paperSizeSelect.addEventListener('change', () => { render(true); updateZoomScale(); });
+    nupSelect.addEventListener('change', () => { render(true); updateZoomScale(); });
+    marginSelect.addEventListener('change', () => render(true));
+    fontSelect.addEventListener('change', () => render(true));
+    chkBreaks.addEventListener('change', () => render(true));
+
+    // サンプルテキスト
+    btnSample.addEventListener('click', () => {
+      markdownInput.value = `#スペースが空いていない見出しでも検知！
+*記号の直後にスペースがない箇条書き
+*これも検知して自動でリストになります
+
+>引用も>の直後にスペースがなくても自動補正されます。
+
+### 数式もしっかりレンダリング
+$$\\int_{\\alpha}^{\\beta} (x - \\alpha)(x - \\beta) \\, dx = -\\frac{1}{6}(\\beta - \\alpha)^3$$
+
+文中で $S = \\frac{|a|}{6}(\\beta-\\alpha)^3$ のように数式が埋め込まれていても綺麗に表示されます。`;
+      render(true);
+      updateZoomScale();
+    });
+
+    // 初期化
+    updatePatternList();
+    updateFontSelect();
+    btnSample.click();
+  </script>
+</body>
+</html>
