@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>青葉銀行 セキュリティ攻防シミュレーター</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- アプリ内トースト通知コンテナ -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- ==========================================
+       全画面チュートリアル（ノベルゲーム風会話）
+       ========================================== -->
+  <div id="tutorial-overlay" class="tutorial-overlay active">
+    <div class="tut-bg-grid"></div>
+    <button id="tut-skip-btn" class="tut-skip-btn" onclick="skipTutorial()">チュートリアルをスキップ ▶▶</button>
+
+    <div class="tut-stage">
+      <div id="tut-char-art" class="tut-char-art"></div>
+    </div>
+
+    <div class="tut-dialog-box" onclick="advanceTutorial()">
+      <div id="tut-speaker" class="tut-speaker-tag">先生</div>
+      <div id="tut-text" class="tut-text"></div>
+      <div id="tut-next-hint" class="tut-next-hint">▼ 画面をタップ / クリックして次へ</div>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       全画面コマンドプロンプト風演出
+       ========================================== -->
+  <div id="cmd-overlay" class="cmd-overlay">
+    <div class="cmd-topbar">
+      <span>root@cyber-attack-console:~# [SIMULATION]</span>
+      <span id="cmd-status" class="cmd-status">EXECUTING...</span>
+    </div>
+    <div id="cmd-body" class="cmd-body"></div>
+  </div>
+
+  <!-- ==========================================
+       メインナビゲーションバー
+       ========================================== -->
+  <header class="top-nav">
+    <div class="brand">
+      <span class="brand-icon">🏦</span>
+      <div>
+        <strong>青葉銀行セキュリティ教材</strong>
+        <span class="brand-sub">LOCAL SIMULATION</span>
+      </div>
+    </div>
+
+    <nav class="mode-switcher">
+      <button id="mode-user-btn" class="mode-btn active" onclick="switchMode('user')">
+        🛡️ 利用者モード
+      </button>
+      <button id="mode-attacker-btn" class="mode-btn attacker-tab" onclick="switchMode('attacker')">
+        💀 攻撃者モード
+      </button>
+      <button id="mode-police-btn" class="mode-btn police-tab locked" onclick="switchMode('police')">
+        🔒 サイバー警察
+      </button>
+    </nav>
+
+    <button class="reopen-tut-btn" onclick="startTutorial()">💬 チュートリアル</button>
+  </header>
+
+  <!-- ミッション進捗バー -->
+  <div class="mission-strip">
+    <span class="mission-title">🎯 学習ミッション：</span>
+    <span id="badge-weak" class="m-badge">① 弱いパス</span>
+    <span id="badge-strong" class="m-badge">② 強いパス(使い回し)</span>
+    <span id="badge-sms" class="m-badge">③ SMS認証</span>
+    <span id="badge-passkey" class="m-badge">④ パスキー</span>
+    <span id="badge-phish" class="m-badge">⑤ 詐欺メール見破り</span>
+  </div>
+
+  <!-- ==========================================
+       VIEW 1：利用者モード（デジタル通帳＆設定）
+       ========================================== -->
+  <main id="view-user" class="main-view active">
+    <div class="user-layout">
+      <!-- 左：デジタル通帳 -->
+      <section id="passbook-card" class="card passbook-card">
+        <div class="passbook-header">
+          <div>
+            <span class="bank-tag">青葉銀行 デジタル通帳</span>
+            <h2>アオバ タロウ 様（普通 1234567）</h2>
+          </div>
+          <button class="btn-outline-sm" onclick="resetAccount()">🔄 口座復旧</button>
+        </div>
+
+        <div id="balance-panel" class="balance-panel">
+          <div class="balance-caption">現在の預金残高</div>
+          <div id="balance-amount" class="balance-amount">3,500,000 <span>円</span></div>
+          <div id="alert-flash-msg" class="alert-flash-msg"></div>
+        </div>
+
+        <div class="passbook-history-header">
+          <h3>📒 入出金明細（リアルタイム更新）</h3>
+          <span id="tx-status-tag" class="tx-status safe">正常稼働中</span>
+        </div>
+        <div id="passbook-list" class="passbook-list"></div>
+
+        <div class="quick-actions">
+          <button class="btn-primary-action" onclick="switchMode('attacker')">
+            💀 攻撃者モードで攻撃を試す ▶
+          </button>
+          <button class="btn-phish-action" onclick="openPhishInbox()">
+            📩 受信メールを確認（1件の新着）
+          </button>
+        </div>
+      </section>
+
+      <!-- 右：認証方式の設定 -->
+      <section class="card settings-card">
+        <h2>🔐 セキュリティ設定（認証方式）</h2>
+        <p class="section-desc">テストしたい認証方式を選んでから、攻撃者モードで攻撃を仕掛けてみよう。</p>
+
+        <div class="auth-options">
+          <div class="auth-option active" data-mode="weak" onclick="selectAuthMode('weak')">
+            <div class="opt-top">
+              <strong>① 弱いパスワードのみ</strong>
+              <span class="tag tag-danger">危険</span>
+            </div>
+            <p>「123456」など短く推測しやすい設定。</p>
+          </div>
+
+          <div class="auth-option" data-mode="strong" onclick="selectAuthMode('strong')">
+            <div class="opt-top">
+              <strong>② 強いパスワード（使い回し）</strong>
+              <span class="tag tag-warn">要注意</span>
+            </div>
+            <p>「X9#mK2$pL8qR」と複雑だが、他サイトと同じ設定。</p>
+          </div>
+
+          <div class="auth-option" data-mode="sms" onclick="selectAuthMode('sms')">
+            <div class="opt-top">
+              <strong>③ パスワード ＋ SMS認証</strong>
+              <span class="tag tag-info">高防御</span>
+            </div>
+            <p>ログイン時にスマホへ届く6桁コードを入力する2要素認証。</p>
+          </div>
+
+          <div class="auth-option" data-mode="passkey" onclick="selectAuthMode('passkey')">
+            <div class="opt-top">
+              <strong>④ パスキー（生体認証＋秘密鍵）</strong>
+              <span class="tag tag-safe">最強</span>
+            </div>
+            <p>端末内の秘密鍵と指紋/顔認証、ドメイン照合で守る最新方式。</p>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- ==========================================
+       VIEW 2：攻撃者モード（ハッカーの指令室）
+       ========================================== -->
+  <main id="view-attacker" class="main-view attacker-theme">
+    <div class="attacker-container">
+      <div class="attacker-banner">
+        <div>
+          <h2>💀 攻撃者コンソール（ATTACKER MODE）</h2>
+          <p>現在のターゲット（青葉銀行）の設定：<strong id="attacker-target-label">① 弱いパスワードのみ</strong></p>
+        </div>
+        <button class="btn-dark-outline" onclick="switchMode('user')">◀ 利用者モードへ戻る</button>
+      </div>
+
+      <div class="attack-cards-grid">
+        <div class="attack-card">
+          <div class="atk-icon">⚡</div>
+          <h3>総当たり攻撃（Brute Force）</h3>
+          <p>専用ツールを使い、パスワードの候補を毎秒数万回の速度で片っ端から自動入力します。</p>
+          <button class="btn-atk-exec" onclick="launchAttack('brute')">この攻撃を実行する ▶</button>
+        </div>
+
+        <div class="attack-card">
+          <div class="atk-icon">📋</div>
+          <h3>リスト型攻撃（Credential Stuffing）</h3>
+          <p>別のショッピングサイト等から流出したID・パスワードのリストを使ってログインを試みます。</p>
+          <button class="btn-atk-exec" onclick="launchAttack('list')">この攻撃を実行する ▶</button>
+        </div>
+
+        <div class="attack-card phish-card">
+          <div class="atk-icon">🎣</div>
+          <h3>フィッシングメール送信（人的攻撃）</h3>
+          <p>利用者を焦らせる偽の緊急メールを送り、本物そっくりの偽ログイン画面へ誘導します。</p>
+          <button class="btn-atk-exec phish" onclick="launchPhishFromAttacker()">偽メールを送信する ▶</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ==========================================
+       VIEW 3：サイバー警察画面（POLICE MODE）
+       ========================================== -->
+  <main id="view-police" class="main-view police-theme">
+    <div class="siren-strip"></div>
+    <div class="police-wrapper">
+      <div class="police-top-badge">
+        <svg class="police-shield" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+          <path d="M50 5 L88 20 V52 C88 74 68 89 50 96 C32 89 12 74 12 52 V20 L50 5 Z"
+                fill="#1e3a8a" stroke="#facc15" stroke-width="4"/>
+          <polygon points="50,24 57,41 75,41 61,52 66,69 50,59 34,69 39,52 25,41 43,41" fill="#facc15"/>
+        </svg>
+        <div class="police-dept-label">CYBER SECURITY POLICE / 教育用サイバー防犯対策本部</div>
+        <h1>サイバー防犯マイスター認定証</h1>
+        <div class="stamp-cleared">CASE CLOSED // ALL THREATS NEUTRALIZED</div>
+      </div>
+
+      <div class="cert-panel">
+        <div class="officer-form">
+          <label for="officer-name-input"><strong>認定者（捜査官名）：</strong></label>
+          <input type="text" id="officer-name-input" value="情報コース 捜査官" oninput="syncOfficerName()" />
+        </div>
+
+        <p class="cert-lead">
+          <strong id="cert-officer-display">情報コース 捜査官</strong> 殿は、全4種の認証方式における脆弱性と防御機構を実地検証し、さらに人間の心理的隙を突くフィッシング攻撃を見破ったことをここに認定する。
+        </p>
+
+        <div class="police-report-grid">
+          <div class="p-box">
+            <h3>🛡️ 技術的対策の検証結果</h3>
+            <ul>
+              <li>弱いパスワードは総当たりで即座に資金流出する。</li>
+              <li>複雑でも使い回しはリスト攻撃に無力である。</li>
+              <li>SMS認証はリスト攻撃を防ぐが、偽サイト入力に弱い。</li>
+              <li>パスキーは鍵ペア＋ドメイン照合により技術的に最強。</li>
+            </ul>
+          </div>
+          <div class="p-box gold">
+            <h3>🧠 人的対策と両者の関連性</h3>
+            <ul>
+              <li>「口座凍結」等の緊急文言で焦らせる手口に警戒する。</li>
+              <li>URLや送信元の偽装（0とoの違い等）を見抜く力が必要。</li>
+              <li><strong>技術×人：</strong> 技術が人のうっかりを補い、人のリテラシーが技術をすり抜ける詐欺を防ぐ。</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="police-footer-actions">
+          <button class="btn-gold" onclick="window.print()">🖨️ 認定証を印刷 / PDF保存</button>
+          <button class="btn-police-back" onclick="switchMode('user')">◀ デモ画面へ戻る</button>
+        </div>
+      </div>
+    </div>
+    <div class="siren-strip"></div>
+  </main>
+
+  <!-- ==========================================
+       UIモーダル：フィッシング体験（メール＆偽サイト）
+       ========================================== -->
+  <div id="phish-modal" class="ui-modal-overlay">
+    <div class="ui-modal phish-ui">
+      <!-- ステップA：メール受信画面 -->
+      <div id="phish-step-mail">
+        <div class="ui-modal-header mail-hdr">
+          <span>📩 受信トレイ - 青葉メール</span>
+          <button class="modal-close-x" onclick="closePhishModal()">✕</button>
+        </div>
+        <div class="ui-modal-body">
+          <div class="mail-meta">
+            <div><strong>差出人：</strong> 青葉銀行セキュリティセンター &lt;notice@a0ba-bank-alert.fake&gt;</div>
+            <div><strong>件名：</strong> <span style="color:#dc2626;">【緊急】不正ログイン検知による口座凍結のお知らせ</span></div>
+          </div>
+          <div class="mail-content">
+            <p>アオバ タロウ 様</p>
+            <p>お客様の口座に第三者からの不正アクセスを試みる動きが検知されました。24時間以内に以下のリンクより本人確認を行わない場合、預金口座は自動的に凍結されます。</p>
+            <div class="fake-link-preview">🔗 https://a0ba-bank-alert.fake/verify-account</div>
+          </div>
+          <p class="phish-prompt">現在設定中の認証：<strong id="phish-mode-display"></strong></p>
+          <div class="phish-btn-group">
+            <button class="btn-danger-fill" onclick="openFakeLoginScreen()">
+              😱 リンクを開いて本人確認（ログイン）へ進む
+            </button>
+            <button class="btn-safe-fill" onclick="reportPhishingSuccess()">
+              🧐 偽ドメイン（a0ba）に気づき、開かずに通報・削除する
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ステップB：偽ログイン画面（アプリ内ブラウザUI） -->
+      <div id="phish-step-browser" style="display:none;">
+        <div class="fake-browser-bar">
+          <span class="lock-broken">🔓 保護されていません</span>
+          <span class="fake-url-text">http://a0ba-bank-alert.fake/verify-account</span>
+          <button class="modal-close-x" onclick="closePhishModal()">✕</button>
+        </div>
+        <div class="ui-modal-body">
+          <div class="fake-bank-logo">🏦 青葉銀行 本人確認ログイン</div>
+          <p style="font-size:0.85rem; color:#64748b; margin-bottom:14px;">
+            口座凍結を解除するため、以下の認証操作を完了してください（※デモ用の擬似入力です）。
+          </p>
+          <div id="phish-auth-area"></div>
+          <button class="btn-outline-sm" style="margin-top:12px;" onclick="closePhishModal()">
+            やっぱり怪しいので閉じる
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       UIモーダル：攻撃結果の解説ダイアログ
+       ========================================== -->
+  <div id="result-modal" class="ui-modal-overlay">
+    <div class="ui-modal result-ui">
+      <div id="res-header" class="ui-modal-header">
+        <span id="res-badge">結果</span>
+      </div>
+      <div class="ui-modal-body">
+        <h3 id="res-title" style="margin-bottom:10px;"></h3>
+        <div id="res-body" class="res-body-text"></div>
+        <div class="res-char-comment" id="res-char-comment"></div>
+        <div style="text-align:right; margin-top:18px;">
+          <button id="res-close-btn" class="btn-primary-action" onclick="closeResultModal()">確認して次へ</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="dialogues.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
